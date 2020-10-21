@@ -5,6 +5,8 @@ using Unity.Networking.Transport;
 using NetworkMessages;
 using System;
 using System.Text;
+using System.Collections.Generic;
+using System.Linq;
 
 public class NetworkServer : MonoBehaviour
 {
@@ -12,8 +14,14 @@ public class NetworkServer : MonoBehaviour
     public ushort serverPort;
     private NativeList<NetworkConnection> m_Connections;
 
+    //***
+    public List<NewPlayer> N_Player;
+
     void Start ()
     {
+        //***
+        N_Player = new List<NewPlayer>();
+
         m_Driver = NetworkDriver.Create();
         var endpoint = NetworkEndPoint.AnyIpv4;
         endpoint.Port = serverPort;
@@ -38,6 +46,11 @@ public class NetworkServer : MonoBehaviour
     }
 
     void OnConnect(NetworkConnection c){
+        //***
+        foreach (NewPlayer NP in N_Player)
+            SendToClient(JsonUtility.ToJson(NP), c);
+
+
         m_Connections.Add(c);
         Debug.Log("Accepted a connection");
 
@@ -66,13 +79,31 @@ public class NetworkServer : MonoBehaviour
             ServerUpdateMsg suMsg = JsonUtility.FromJson<ServerUpdateMsg>(recMsg);
             Debug.Log("Server update message received!");
             break;
+
+            //***
+            case Commands.NEW_PLAYER:
+                NewPlayer neMsg = JsonUtility.FromJson<NewPlayer>(recMsg);
+                Debug.Log("New Player Joining!");
+                N_Player.Add(neMsg);
+                foreach (NetworkConnection cp in m_Connections)
+                    SendToClient(JsonUtility.ToJson(neMsg), cp);
+                break;
+            case Commands.PLAYER_INPUT:
+                PlayerInputMsg move = JsonUtility.FromJson<PlayerInputMsg>(recMsg);
+                Debug.Log("Player moving!");
+                foreach (NetworkConnection cp in m_Connections)
+                    SendToClient(JsonUtility.ToJson(move), cp);
+                break;
+
+
             default:
             Debug.Log("SERVER ERROR: Unrecognized message received!");
             break;
         }
     }
 
-    void OnDisconnect(int i){
+    void OnDisconnect(int i)
+    {
         Debug.Log("Client disconnected from server");
         m_Connections[i] = default(NetworkConnection);
     }
@@ -86,10 +117,10 @@ public class NetworkServer : MonoBehaviour
         {
             if (!m_Connections[i].IsCreated)
             {
-
                 m_Connections.RemoveAtSwapBack(i);
                 --i;
             }
+            
         }
 
         // AcceptNewConnections
@@ -114,13 +145,11 @@ public class NetworkServer : MonoBehaviour
             while (cmd != NetworkEvent.Type.Empty)
             {
                 if (cmd == NetworkEvent.Type.Data)
-                {
                     OnData(stream, i);
-                }
+                
                 else if (cmd == NetworkEvent.Type.Disconnect)
-                {
                     OnDisconnect(i);
-                }
+                
 
                 cmd = m_Driver.PopEventForConnection(m_Connections[i], out stream);
             }

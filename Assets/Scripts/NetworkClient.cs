@@ -5,6 +5,7 @@ using NetworkMessages;
 using NetworkObjects;
 using System;
 using System.Text;
+using UnityEngine.UIElements;
 
 public class NetworkClient : MonoBehaviour
 {
@@ -13,6 +14,12 @@ public class NetworkClient : MonoBehaviour
     public string serverIP;
     public ushort serverPort;
 
+    //***
+    public GameObject Player;
+    private GameObject self;
+    float speed = 5;
+    float P_ID;
+
     
     void Start ()
     {
@@ -20,6 +27,9 @@ public class NetworkClient : MonoBehaviour
         m_Connection = default(NetworkConnection);
         var endpoint = NetworkEndPoint.Parse(serverIP,serverPort);
         m_Connection = m_Driver.Connect(endpoint);
+
+        //***
+        P_ID = UnityEngine.Random.value;
     }
     
     void SendToServer(string message){
@@ -30,12 +40,16 @@ public class NetworkClient : MonoBehaviour
     }
 
     void OnConnect(){
-        Debug.Log("We are now connected to the server");
+        Debug.Log("Player Respound");
 
-        //// Example to send a handshake message:
-        // HandshakeMsg m = new HandshakeMsg();
-        // m.player.id = m_Connection.InternalId.ToString();
-        // SendToServer(JsonUtility.ToJson(m));
+        //****
+        NewPlayer n = new NewPlayer();
+        GameObject PlayerInt = Instantiate(Player, new Vector3(-5.0f, 0.0f, 0.0f), Quaternion.identity);
+        PlayerInt.AddComponent<PlayerMove>();//get move class
+        n.location = PlayerInt.transform.position;
+        self = PlayerInt;
+        n.ID = P_ID;
+        SendToServer(JsonUtility.ToJson(n));
     }
 
     void OnData(DataStreamReader stream){
@@ -57,6 +71,24 @@ public class NetworkClient : MonoBehaviour
             ServerUpdateMsg suMsg = JsonUtility.FromJson<ServerUpdateMsg>(recMsg);
             Debug.Log("Server update message received!");
             break;
+
+            //***
+            case Commands.NEW_PLAYER:
+                NewPlayer neMsg = JsonUtility.FromJson<NewPlayer>(recMsg);
+                Debug.Log("New Player Joining!");
+                if (P_ID != neMsg.ID)
+                    Instantiate(Player, new Vector3(5.0f,0.0f,0.0f), Quaternion.identity);
+                break;
+            case Commands.PLAYER_INPUT:
+                PlayerInputMsg move = JsonUtility.FromJson<PlayerInputMsg>(recMsg);
+                Debug.Log("Player moving!");
+                foreach (GameObject cp in GameObject.FindGameObjectsWithTag("Player"))
+                {
+                    if (cp != self)
+                        cp.transform.position = move.move;
+                }
+                break;
+
             default:
             Debug.Log("Unrecognized message received!");
             break;
@@ -77,14 +109,37 @@ public class NetworkClient : MonoBehaviour
     {
         m_Driver.Dispose();
     }   
+
+
+    //player moving
+    public void PlayerMove(GameObject s)
+    {
+        PlayerInputMsg PM = new PlayerInputMsg();
+
+        /*
+        Vector2 movementVector = new Vector2(Input.GetAxis("Horizontal"),
+                                             Input.GetAxis("Vertical"));
+        movementVector *= speed;
+        PM.move = s.transform.position= movementVector;*/
+        PM.move = s.transform.position;
+        PM.ID = P_ID;
+
+
+        SendToServer(JsonUtility.ToJson(PM));
+    }
+
     void Update()
     {
         m_Driver.ScheduleUpdate().Complete();
 
         if (!m_Connection.IsCreated)
-        {
             return;
-        }
+        
+        if(self)
+            //player move
+            PlayerMove(self);
+
+        
 
         DataStreamReader stream;
         NetworkEvent.Type cmd;
@@ -92,17 +147,14 @@ public class NetworkClient : MonoBehaviour
         while (cmd != NetworkEvent.Type.Empty)
         {
             if (cmd == NetworkEvent.Type.Connect)
-            {
                 OnConnect();
-            }
+            
             else if (cmd == NetworkEvent.Type.Data)
-            {
                 OnData(stream);
-            }
+            
             else if (cmd == NetworkEvent.Type.Disconnect)
-            {
                 OnDisconnect();
-            }
+            
 
             cmd = m_Connection.PopEvent(m_Driver, out stream);
         }
